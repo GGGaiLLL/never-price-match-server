@@ -1,9 +1,9 @@
 package server
 
 import (
-	v1 "demo/api/helloworld/v1"
-	"demo/internal/conf"
-	"demo/internal/service"
+	v1 "never-price-match-server/api/helloworld/v1"
+	"never-price-match-server/internal/conf"
+	"never-price-match-server/internal/service"
 
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/go-kratos/kratos/v2/middleware/recovery"

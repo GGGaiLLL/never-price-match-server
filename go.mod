@@ -1,4 +1,4 @@
-module demo
+module never-price-match-server
 
 go 1.21
 

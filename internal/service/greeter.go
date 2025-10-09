@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 
-	v1 "demo/api/helloworld/v1"
-	"demo/internal/biz"
+	v1 "never-price-match-server/api/helloworld/v1"
+	"never-price-match-server/internal/biz"
 )
 
 // GreeterService is a greeter service.

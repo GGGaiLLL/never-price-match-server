@@ -6,11 +6,11 @@
 package main
 
 import (
-	"demo/internal/biz"
-	"demo/internal/conf"
-	"demo/internal/data"
-	"demo/internal/server"
-	"demo/internal/service"
+	"never-price-match-server/internal/biz"
+	"never-price-match-server/internal/conf"
+	"never-price-match-server/internal/data"
+	"never-price-match-server/internal/server"
+	"never-price-match-server/internal/service"
 
 	"github.com/go-kratos/kratos/v2"
 	"github.com/go-kratos/kratos/v2/log"

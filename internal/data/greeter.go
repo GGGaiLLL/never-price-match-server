@@ -3,7 +3,7 @@ package data
 import (
 	"context"
 
-	"demo/internal/biz"
+	"never-price-match-server/internal/biz"
 
 	"github.com/go-kratos/kratos/v2/log"
 )

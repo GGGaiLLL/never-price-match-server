@@ -1,7 +1,7 @@
 package data
 
 import (
-	"demo/internal/conf"
+	"never-price-match-server/internal/conf"
 
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/google/wire"
