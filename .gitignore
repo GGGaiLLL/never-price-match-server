@@ -1,56 +1,56 @@
-# compiled output
-/dist
-/node_modules
-/build
+# === Go build/cache ===
+bin/
+build/
+dist/
+tmp/
+temp/
+*.out
+*.test
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.o
+coverage/
+coverage.txt
+profile.out
+*.coverprofile
 
-# Logs
-logs
-*.log
-npm-debug.log*
-pnpm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
+# === Kratos / API ===
+# 保留 *.pb.go（不要忽略）
+api/**/openapi*.json
+api/**/swagger*.json
 
-# OS
-.DS_Store
-
-# Tests
-/coverage
-/.nyc_output
-
-# IDEs and editors
-/.idea
-.project
-.classpath
-.c9/
-*.launch
-.settings/
-*.sublime-workspace
-
-# IDE - VSCode
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-
-# dotenv environment variable files
+# === Config / Env ===
 .env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
+.env.*
+!.env.example
+configs/*.local.*
+configs/*.dev.*
+configs/*.test.*
 
-# temp directory
-.temp
-.tmp
+# === Logs ===
+logs/
+*.log
+*.log.*
 
-# Runtime data
-pids
+# === IDE / OS ===
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# === Docker / Runtime ===
+docker-data/
 *.pid
-*.seed
 *.pid.lock
 
-# Diagnostic reports (https://nodejs.org/api/report.html)
-report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+# === Buf / Protobuf (可选) ===
+.bufbuild/
+
+# === Vendor（如不提交可取消注释） ===
+# vendor/
