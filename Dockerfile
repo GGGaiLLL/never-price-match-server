@@ -1,24 +1,18 @@
-FROM golang:1.19 AS builder
-
-COPY . /src
-WORKDIR /src
-
-RUN GOPROXY=https://goproxy.cn make build
-
-FROM debian:stable-slim
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-		ca-certificates  \
-        netbase \
-        && rm -rf /var/lib/apt/lists/ \
-        && apt-get autoremove -y && apt-get autoclean -y
-
-COPY --from=builder /src/bin /app
-
+# 1. 构建阶段
+FROM golang:1.22-alpine AS builder
+ENV GOTOOLCHAIN=auto
 WORKDIR /app
+RUN apk add --no-cache git
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o server ./cmd/server
 
-EXPOSE 8000
-EXPOSE 9000
-VOLUME /data/conf
-
-CMD ["./server", "-conf", "/data/conf"]
+# 2. 运行阶段
+FROM gcr.io/distroless/base-debian12
+WORKDIR /app
+COPY --from=builder /app/server /app/server
+COPY configs /app/configs
+EXPOSE 8080
+USER 65532:65532
+ENTRYPOINT ["/app/server"]
