@@ -28,6 +28,11 @@ func (r *queryResolver) User(ctx context.Context, id string) (*model.User, error
 	return &model.User{ID: u.ID, Name: u.Name, Email: u.Email}, nil
 }
 
+// CheckEmailExist is the resolver for the checkEmailExist field.
+func (r *queryResolver) CheckEmailExist(ctx context.Context, email string) (bool, error) {
+	return r.UserService.CheckEmailExist(email)
+}
+
 // Mutation returns generated.MutationResolver implementation.
 func (r *Resolver) Mutation() generated.MutationResolver { return &mutationResolver{r} }
 

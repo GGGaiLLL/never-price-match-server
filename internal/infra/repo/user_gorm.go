@@ -3,8 +3,8 @@ package repo
 import (
 	"errors"
 
-	"never-price-match-server/internal/user"
 	"gorm.io/gorm"
+	"never-price-match-server/internal/user"
 )
 
 // 实现 user.Repo 接口
@@ -33,4 +33,12 @@ func (r *UserGormRepo) GetByID(id string) (*user.User, error) {
 
 func (r *UserGormRepo) Create(u *user.User) error {
 	return r.db.Create(u).Error
+}
+
+func (r *UserGormRepo) CheckEmailExists(email string) (bool, error) {
+	var count int64
+	if err := r.db.Model(&user.User{}).Where("email = ?", email).Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

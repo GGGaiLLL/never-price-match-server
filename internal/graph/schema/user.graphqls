@@ -16,6 +16,7 @@ input CreateUserInput {
 
 type Query {
   user(id: ID!): User
+  checkEmailExist(email: String!): Boolean!
 }
 
 type Mutation {
