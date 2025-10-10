@@ -2,10 +2,18 @@ package user
 
 import (
 	"never-price-match-server/internal/infra/logger"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Service struct {
 	repo Repo
+}
+
+type CreateUserInput struct {
+	Email string
+	Name  string
+	Password string
 }
 
 func NewService(r Repo) *Service {
@@ -20,8 +28,14 @@ func (s *Service) Get(id string) (*User, error) {
 	return s.repo.GetByID(id)
 }
 
-func (s *Service) Create(name, email string) (*User, error) {
-	u := &User{Name: name, Email: email}
+func (s *Service) Create(name, email, password string) (*User, error) {
+	// Hash the password before storing it
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		logger.L.Error("password hashing failed", logger.Err(err))
+		return nil, err
+	}
+	u := &User{Name: name, Email: email, PasswordHash: string(hashedPassword)}
 	if err := s.repo.Create(u); err != nil {
 		logger.L.Error("create user failed", logger.Err(err))
 		return nil, err

@@ -11,6 +11,8 @@ import (
 	"never-price-match-server/internal/infra/repo"
 	"never-price-match-server/internal/user"
 
+	"github.com/gin-contrib/cors"
+
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/gin-gonic/gin"
@@ -25,7 +27,7 @@ func initViper() {
 
 	viper.AutomaticEnv()
 	_ = viper.BindEnv("APP_ENV")
-	
+
 	env := viper.GetString("APP_ENV")
 	if env == "" {
 		env = viper.GetString("env")
@@ -65,9 +67,14 @@ func RunFull() error {
 
 	// 6) HTTP
 	r := gin.Default()
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:5173", "http://127.0.0.1:5173"},
+		AllowMethods:     []string{"POST", "GET", "OPTIONS"},
+		AllowHeaders:     []string{"Content-Type", "Authorization"},
+		AllowCredentials: true,
+	}))
 	r.GET("/", func(c *gin.Context) { playground.Handler("GraphQL", "/query").ServeHTTP(c.Writer, c.Request) })
-	r.POST("/query", func(c *gin.Context) { srv.ServeHTTP(c.Writer, c.Request) })
-	r.GET("/healthz", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
+	r.POST("/graphql", func(c *gin.Context) { srv.ServeHTTP(c.Writer, c.Request) })
 
 	addr := viper.GetString("app.addr")
 	if addr == "" {

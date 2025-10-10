@@ -1,19 +1,23 @@
+scalar Time
+
 type User {
   id: ID!
-  name: String!
   email: String!
+  name: String!
+  createdAt: Time!
+  updatedAt: Time!
+}
+
+input CreateUserInput {
+  email: String!
+  name: String!
+  password: String!
 }
 
 type Query {
   user(id: ID!): User
-  users: [User!]!
-}
-
-input NewUserInput {
-  name: String!
-  email: String!
 }
 
 type Mutation {
-  createUser(input: NewUserInput!): User!
+  createUser(input: CreateUserInput!): User!
 }

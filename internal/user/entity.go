@@ -11,6 +11,7 @@ type User struct {
 	ID        string    `gorm:"type:varchar(36);primaryKey"`
 	Name      string    `gorm:"type:varchar(128);not null"`
 	Email     string    `gorm:"type:varchar(255);uniqueIndex;not null"`
+	PasswordHash string `gorm:"type:varchar(255);not null"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

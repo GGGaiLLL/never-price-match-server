@@ -11,8 +11,8 @@ import (
 )
 
 // CreateUser is the resolver for the createUser field.
-func (r *mutationResolver) CreateUser(ctx context.Context, input model.NewUserInput) (*model.User, error) {
-	u, err := r.UserService.Create(input.Name, input.Email)
+func (r *mutationResolver) CreateUser(ctx context.Context, input model.CreateUserInput) (*model.User, error) {
+	u, err := r.UserService.Create(input.Name, input.Email, input.Password)
 	if err != nil {
 		return nil, err
 	}
@@ -26,19 +26,6 @@ func (r *queryResolver) User(ctx context.Context, id string) (*model.User, error
 		return nil, err
 	}
 	return &model.User{ID: u.ID, Name: u.Name, Email: u.Email}, nil
-}
-
-// Users is the resolver for the users field.
-func (r *queryResolver) Users(ctx context.Context) ([]*model.User, error) {
-	us, err := r.UserService.List()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]*model.User, 0, len(us))
-	for _, u := range us {
-		out = append(out, &model.User{ID: u.ID, Name: u.Name, Email: u.Email})
-	}
-	return out, nil
 }
 
 // Mutation returns generated.MutationResolver implementation.

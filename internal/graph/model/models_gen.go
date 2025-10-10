@@ -2,19 +2,26 @@
 
 package model
 
-type Mutation struct {
+import (
+	"time"
+)
+
+type CreateUserInput struct {
+	Email    string `json:"email"`
+	Name     string `json:"name"`
+	Password string `json:"password"`
 }
 
-type NewUserInput struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
+type Mutation struct {
 }
 
 type Query struct {
 }
 
 type User struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
