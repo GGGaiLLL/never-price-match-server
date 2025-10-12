@@ -42,3 +42,14 @@ func (r *UserGormRepo) CheckEmailExists(email string) (bool, error) {
 	}
 	return count > 0, nil
 }
+
+func (r *UserGormRepo) GetByEmail(email string) (*user.User, error) {
+	var u user.User
+	if err := r.db.First(&u, "email = ?", email).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("user not found")
+		}
+		return nil, err
+	}
+	return &u, nil
+}

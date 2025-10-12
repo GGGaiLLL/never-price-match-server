@@ -1,6 +1,7 @@
 package user
 
 import (
+	"errors"
 	"never-price-match-server/internal/infra/logger"
 	"strings"
 
@@ -49,4 +50,24 @@ func (s *Service) CheckEmailExist(email string) (bool, error) {
 	logger.L.Info("checking email existence", logger.Str("email", email))
 	e := strings.ToLower(strings.TrimSpace(email))
 	return s.repo.CheckEmailExists(e)
+}
+
+var ErrInvalidEmail = errors.New("Invalid email")
+var ErrInvalidPassword = errors.New("Invalid password")
+
+func (s *Service) Login(email string, password string) (*User, error) {
+	e := strings.ToLower(strings.TrimSpace(email))
+
+	u, err := s.repo.GetByEmail(e)
+	if err != nil || u == nil {
+		logger.L.Warn("login failed: user not found", logger.Str("email", e), logger.Err(err))
+		return nil, ErrInvalidEmail
+	}
+
+	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) != nil {
+		logger.L.Warn("login failed: incorrect password", logger.Str("email", e))
+		return nil, ErrInvalidPassword
+	}
+
+	return u, nil
 }

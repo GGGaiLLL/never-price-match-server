@@ -1,24 +1,39 @@
 scalar Time
+directive @auth on FIELD_DEFINITION
 
 type User {
   id: ID!
-  email: String!
   name: String!
+  email: String!
   createdAt: Time!
   updatedAt: Time!
 }
 
 input CreateUserInput {
-  email: String!
   name: String!
+  email: String!
   password: String!
 }
 
+input LoginInput {
+  email: String!
+  password: String!
+}
+
+type AuthPayload {
+  ok: Boolean!
+  user: User
+}
+
 type Query {
-  user(id: ID!): User
+  me: User @auth
+  user(id: ID!): User @auth
+  users: [User!]! @auth
   checkEmailExist(email: String!): Boolean!
 }
 
 type Mutation {
   createUser(input: CreateUserInput!): User!
+  login(input: LoginInput!): AuthPayload!
+  logout: Boolean!
 }

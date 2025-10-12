@@ -6,8 +6,13 @@ package graph
 
 import (
 	"context"
+	"fmt"
+	"never-price-match-server/internal/auth"
 	"never-price-match-server/internal/graph/generated"
 	"never-price-match-server/internal/graph/model"
+	"never-price-match-server/internal/httpctx"
+	"never-price-match-server/internal/infra/logger"
+	"time"
 )
 
 // CreateUser is the resolver for the createUser field.
@@ -19,13 +24,60 @@ func (r *mutationResolver) CreateUser(ctx context.Context, input model.CreateUse
 	return &model.User{ID: u.ID, Name: u.Name, Email: u.Email}, nil
 }
 
+// Login is the resolver for the login field.
+func (r *mutationResolver) Login(ctx context.Context, input model.LoginInput) (*model.AuthPayload, error) {
+	u, err := r.UserService.Login(input.Email, input.Password)
+	if err != nil {
+		return &model.AuthPayload{Ok: false, User: nil}, err
+	}
+
+	token, err := auth.Sign(u.ID, 7*24*time.Hour)
+	if err != nil {
+		logger.L.Error("sign token failed", logger.Err(err))
+		return nil, err
+	}
+
+	if gc := httpctx.Gin(ctx); gc != nil {
+		gc.SetCookie("sid", token, int((7 * 24 * time.Hour).Seconds()), "/", "", false, true) // HttpOnly
+		// SameSite
+		gc.Writer.Header().Add("Set-Cookie", "sid="+token+"; Path=/; HttpOnly; SameSite=Lax")
+	}
+	return &model.AuthPayload{Ok: true, User: &model.User{ID: u.ID, Name: u.Name, Email: u.Email, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt}}, nil
+}
+
+// Logout is the resolver for the logout field.
+func (r *mutationResolver) Logout(ctx context.Context) (bool, error) {
+	if gc := httpctx.Gin(ctx); gc != nil {
+		gc.SetCookie("sid", "", -1, "/", "", false, true)
+		gc.Writer.Header().Add("Set-Cookie", "sid=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
+	}
+	return true, nil
+}
+
+// Me is the resolver for the me field.
+func (r *queryResolver) Me(ctx context.Context) (*model.User, error) {
+	gc := httpctx.Gin(ctx)
+	v, _ := gc.Get("uid")
+	uid, _ := v.(string)
+	u, err := r.UserService.Get(uid)
+	if err != nil || u == nil {
+		return nil, err
+	}
+	return &model.User{ID: u.ID, Name: u.Name, Email: u.Email, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt}, nil
+}
+
 // User is the resolver for the user field.
 func (r *queryResolver) User(ctx context.Context, id string) (*model.User, error) {
 	u, err := r.UserService.Get(id)
 	if err != nil {
 		return nil, err
 	}
-	return &model.User{ID: u.ID, Name: u.Name, Email: u.Email}, nil
+	return &model.User{ID: u.ID, Name: u.Name, Email: u.Email, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt}, nil
+}
+
+// Users is the resolver for the users field.
+func (r *queryResolver) Users(ctx context.Context) ([]*model.User, error) {
+	panic(fmt.Errorf("not implemented: Users - users"))
 }
 
 // CheckEmailExist is the resolver for the checkEmailExist field.

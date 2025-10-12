@@ -4,17 +4,19 @@ import (
 	"net/http"
 	"os"
 
+	"never-price-match-server/internal/auth"
 	"never-price-match-server/internal/graph"
+	"never-price-match-server/internal/graph/directives"
 	"never-price-match-server/internal/graph/generated"
+	"never-price-match-server/internal/httpctx"
 	"never-price-match-server/internal/infra/db"
 	"never-price-match-server/internal/infra/logger"
 	"never-price-match-server/internal/infra/repo"
 	"never-price-match-server/internal/user"
 
-	"github.com/gin-contrib/cors"
-
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/playground"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
 )
@@ -63,17 +65,25 @@ func RunFull() error {
 	userRepo := repo.NewUserGormRepo(gdb)
 	userSvc := user.NewService(userRepo)
 	resolver := &graph.Resolver{UserService: userSvc}
-	srv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: resolver}))
+	cfg := generated.Config{Resolvers: resolver}
+	cfg.Directives.Auth = directives.Auth()
+	srv := handler.NewDefaultServer(generated.NewExecutableSchema(cfg))
 
 	// 6) HTTP
 	r := gin.Default()
-	r.Use(cors.New(cors.Config{
+	r.Use((cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:5173", "http://127.0.0.1:5173"},
 		AllowMethods:     []string{"POST", "GET", "OPTIONS"},
 		AllowHeaders:     []string{"Content-Type", "Authorization"},
 		AllowCredentials: true,
-	}))
-	r.GET("/", func(c *gin.Context) { playground.Handler("GraphQL", "/query").ServeHTTP(c.Writer, c.Request) })
+	})))
+	r.Use(auth.CookieAuth())
+	r.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(httpctx.WithGin(c.Request.Context(), c))
+		c.Next()
+	})
+
+	r.GET("/", func(c *gin.Context) { playground.Handler("GraphQL", "/graphql").ServeHTTP(c.Writer, c.Request) })
 	r.POST("/graphql", func(c *gin.Context) { srv.ServeHTTP(c.Writer, c.Request) })
 
 	addr := viper.GetString("app.addr")
