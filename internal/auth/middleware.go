@@ -8,11 +8,14 @@ import (
 
 func CookieAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if t, err := c.Cookie("sid"); err == nil && t != "" {
-			if uid, err := Parse(t); err == nil {
-				c.Set("uid", uid) // 后续可用
+		cookie, err := c.Cookie("sid")
+		if err == nil && cookie != "" {
+			claims, err := Parse(cookie)
+			if err == nil {
+				uid := claims.UserID
+				c.Set("uid", uid) // Available for subsequent use
 			} else {
-				logger.L.Info("invalid token", logger.Err(err))
+				logger.L.Warn("parse token failed", logger.Err(err))
 			}
 		}
 		c.Next()

@@ -14,7 +14,7 @@ func Auth() func(ctx context.Context, obj interface{}, next graphql.Resolver) (r
 		if gc == nil {
 			return nil, errors.New("unauthorized")
 		}
-		uid, ok := gc.Get("uid") // 来自 Cookie/JWT 中间件
+		uid, ok := gc.Get("uid") // From Cookie/JWT middleware
 
 		if !ok || uid == "" {
 			return nil, errors.New("unauthorized")

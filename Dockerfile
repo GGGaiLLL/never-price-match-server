@@ -1,4 +1,4 @@
-# 1. 构建阶段
+# 1. Build stage
 FROM golang:1.22-alpine AS builder
 ENV GOTOOLCHAIN=auto
 WORKDIR /app
@@ -8,7 +8,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o server ./cmd/server
 
-# 2. 运行阶段
+# 2. Run stage
 FROM gcr.io/distroless/base-debian12
 WORKDIR /app
 COPY --from=builder /app/server /app/server

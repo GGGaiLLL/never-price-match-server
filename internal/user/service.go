@@ -8,29 +8,35 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-type Service struct {
+// Service defines the business logic interface for users
+type Service interface {
+	List() ([]*User, error)
+	Get(id string) (*User, error)
+	Create(name, email, password string) (*User, error)
+	CheckEmailExist(email string) (bool, error)
+	Login(email, password string) (*User, error)
+}
+
+// service is the private implementation of the Service interface
+type service struct {
 	repo Repo
 }
 
-type CreateUserInput struct {
-	Email    string
-	Name     string
-	Password string
+// NewService creates a new user service instance
+func NewService(r Repo) Service {
+	return &service{repo: r}
 }
 
-func NewService(r Repo) *Service {
-	return &Service{repo: r}
-}
-
-func (s *Service) List() ([]*User, error) {
+// The receiver for List, Get, Create, CheckEmailExist, Login methods changed from *Service to *service
+func (s *service) List() ([]*User, error) {
 	return s.repo.GetAll()
 }
 
-func (s *Service) Get(id string) (*User, error) {
+func (s *service) Get(id string) (*User, error) {
 	return s.repo.GetByID(id)
 }
 
-func (s *Service) Create(name, email, password string) (*User, error) {
+func (s *service) Create(name, email, password string) (*User, error) {
 	// Hash the password before storing it
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -46,7 +52,7 @@ func (s *Service) Create(name, email, password string) (*User, error) {
 	return u, nil
 }
 
-func (s *Service) CheckEmailExist(email string) (bool, error) {
+func (s *service) CheckEmailExist(email string) (bool, error) {
 	logger.L.Info("checking email existence", logger.Str("email", email))
 	e := strings.ToLower(strings.TrimSpace(email))
 	return s.repo.CheckEmailExists(e)
@@ -55,7 +61,7 @@ func (s *Service) CheckEmailExist(email string) (bool, error) {
 var ErrInvalidEmail = errors.New("Invalid email")
 var ErrInvalidPassword = errors.New("Invalid password")
 
-func (s *Service) Login(email string, password string) (*User, error) {
+func (s *service) Login(email string, password string) (*User, error) {
 	e := strings.ToLower(strings.TrimSpace(email))
 
 	u, err := s.repo.GetByEmail(e)

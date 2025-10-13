@@ -12,6 +12,7 @@ import (
 	"never-price-match-server/internal/infra/db"
 	"never-price-match-server/internal/infra/logger"
 	"never-price-match-server/internal/infra/repo"
+	"never-price-match-server/internal/product"
 	"never-price-match-server/internal/user"
 
 	"github.com/99designs/gqlgen/graphql/handler"
@@ -64,7 +65,9 @@ func RunFull() error {
 	// 5) DI
 	userRepo := repo.NewUserGormRepo(gdb)
 	userSvc := user.NewService(userRepo)
-	resolver := &graph.Resolver{UserService: userSvc}
+	productRepo := repo.NewProductGormRepo(gdb)
+	productSvc := product.NewService(productRepo)
+	resolver := &graph.Resolver{UserService: userSvc, ProductService: productSvc}
 	cfg := generated.Config{Resolvers: resolver}
 	cfg.Directives.Auth = directives.Auth()
 	srv := handler.NewDefaultServer(generated.NewExecutableSchema(cfg))

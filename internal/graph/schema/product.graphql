@@ -1,0 +1,46 @@
+extend type Query {
+  products(category: String!): [Product!]!
+}
+
+type Product {
+  id: ID!
+  name: String!
+  category: String!
+  brand: String!
+  model: String!
+  imageURL: String!
+  prices: [Price!]
+  lowestPrice: Float!
+  lowestPricePlatform: String!
+  lowestPriceUpdatedAt: Time!
+  lowestPriceLink: String!
+  createdAt: Time!
+  updatedAt: Time!
+}
+
+type Price {
+  id: ID!
+  platform: String!
+  price: Float!
+  link: String!
+  createdAt: Time!
+  updatedAt: Time!
+}
+
+"""
+Represents a product found by scraping a retail website.
+"""
+type ScrapedProduct {
+  platform: String!
+  productName: String!
+  price: Float!
+  imageUrl: String!
+  link: String!
+}
+
+extend type Query {
+  """
+  Searches for a product by name across multiple platforms and returns scraped data.
+  """
+  searchProduct(name: String!): [ScrapedProduct!]!
+}

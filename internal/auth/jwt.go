@@ -1,33 +1,40 @@
 package auth
 
 import (
-	"github.com/golang-jwt/jwt/v5"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
-var hmacSecret = []byte("change-me") // 可从 viper 读取
+var hmacSecret = []byte("change-me") // Can be read from viper
 
-func SetSecret(s string) {
-	if s != "" {
-		hmacSecret = []byte(s)
-	}
+type Claims struct {
+	UserID string `json:"user_id"`
+	jwt.RegisteredClaims
 }
 
-func Sign(userID string, ttl time.Duration) (string, error) {
-	claims := jwt.MapClaims{"sub": userID, "exp": time.Now().Add(ttl).Unix()}
+func Sign(userID string, expire time.Duration) (string, error) {
+	claims := Claims{
+		userID,
+		jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expire)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+		},
+	}
+
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(hmacSecret)
 }
 
-func Parse(tokenStr string) (string, error) {
-	t, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) { return hmacSecret, nil })
-	if err != nil || !t.Valid {
-		return "", err
+func Parse(tokenString string) (*Claims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		return hmacSecret, nil
+	})
+
+	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+		return claims, nil
+	} else {
+		return nil, err
 	}
-	if c, ok := t.Claims.(jwt.MapClaims); ok {
-		if sub, _ := c["sub"].(string); sub != "" {
-			return sub, nil
-		}
-	}
-	return "", jwt.ErrTokenInvalidClaims
 }

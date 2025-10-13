@@ -1,55 +1,52 @@
 package repo
 
 import (
-	"errors"
+	"never-price-match-server/internal/user"
 
 	"gorm.io/gorm"
-	"never-price-match-server/internal/user"
 )
 
-// 实现 user.Repo 接口
-type UserGormRepo struct{ db *gorm.DB }
-
-func NewUserGormRepo(db *gorm.DB) *UserGormRepo { return &UserGormRepo{db: db} }
-
-func (r *UserGormRepo) GetAll() ([]*user.User, error) {
-	var list []*user.User
-	if err := r.db.Order("created_at desc").Find(&list).Error; err != nil {
-		return nil, err
-	}
-	return list, nil
+// Implements the user.Repo interface
+type userGormRepo struct {
+	db *gorm.DB
 }
 
-func (r *UserGormRepo) GetByID(id string) (*user.User, error) {
+func NewUserGormRepo(db *gorm.DB) user.Repo {
+	return &userGormRepo{db: db}
+}
+
+func (r *userGormRepo) Create(user *user.User) error {
+	return r.db.Create(user).Error
+}
+
+func (r *userGormRepo) GetByID(id string) (*user.User, error) {
 	var u user.User
-	if err := r.db.First(&u, "id = ?", id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("user not found")
-		}
+	if err := r.db.Where("id = ?", id).First(&u).Error; err != nil {
 		return nil, err
 	}
 	return &u, nil
 }
 
-func (r *UserGormRepo) Create(u *user.User) error {
-	return r.db.Create(u).Error
+func (r *userGormRepo) GetByEmail(email string) (*user.User, error) {
+	var u user.User
+	if err := r.db.Where("email = ?", email).First(&u).Error; err != nil {
+		return nil, err
+	}
+	return &u, nil
 }
 
-func (r *UserGormRepo) CheckEmailExists(email string) (bool, error) {
+func (r *userGormRepo) GetAll() ([]*user.User, error) {
+	var users []*user.User
+	if err := r.db.Find(&users).Error; err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
+func (r *userGormRepo) CheckEmailExists(email string) (bool, error) {
 	var count int64
 	if err := r.db.Model(&user.User{}).Where("email = ?", email).Count(&count).Error; err != nil {
 		return false, err
 	}
 	return count > 0, nil
-}
-
-func (r *UserGormRepo) GetByEmail(email string) (*user.User, error) {
-	var u user.User
-	if err := r.db.First(&u, "email = ?", email).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("user not found")
-		}
-		return nil, err
-	}
-	return &u, nil
 }
