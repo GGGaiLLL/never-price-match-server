@@ -29,3 +29,15 @@ type Price struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
+
+type scrapeProductParams struct {
+	SearchTerm        string
+	Platform          string
+	SearchURL         string
+	ContainerSelector string
+	TitleSelector     string
+	PriceSelectors    []string
+	ImageSelector     string
+	LinkSelector      string
+	ImageAttr         string
+}

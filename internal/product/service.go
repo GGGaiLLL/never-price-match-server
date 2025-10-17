@@ -2,20 +2,20 @@ package product
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand/v2"
 	"net/url"
-	"never-price-match-server/internal/infra/logger"
+	"never-price-match-server/internal/infra/logger" // <--- 1. 添加 "os" 包
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/page" // NEW: Import the 'page' package for stealth operations
 	"github.com/chromedp/chromedp"
-	"github.com/gocolly/colly/v2"
 )
 
 // Service defines the business logic interface for products.
@@ -66,7 +66,7 @@ func (s *service) GetProductsByCategory(category string) ([]Product, error) {
 				// 3. Call the specific scraper for each platform
 				switch priceInfo.Platform {
 				case "Amazon.com": // Changed from JD.com
-					scrapedPrice, err = scrapeAmazon(priceInfo.Link) // Changed from scrapeJD
+					// scrapedPrice, err = scrapeAmazon(priceInfo.Link) // Changed from scrapeJD
 				case "eBay", "Walmart": // Changed from Taobao, Pinduoduo
 					// You would have scrapeEbay, scrapeWalmart functions here
 					// For now, we'll keep them as random values for demonstration
@@ -96,72 +96,25 @@ func (s *service) GetProductsByCategory(category string) ([]Product, error) {
 	return products, nil
 }
 
-// scrapeAmazon remains a helper function and is unchanged.
-func scrapeAmazon(url string) (float64, error) {
-	var price float64
-	var found bool
-
-	c := colly.NewCollector(
-		// Using a realistic user agent is often necessary.
-		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"),
-	)
-
-	// This CSS selector is an EXAMPLE. You MUST inspect the actual product page on Amazon.com to find the correct one.
-	// Amazon prices are often split into parts, e.g., '.a-price-whole' and '.a-price-fraction'.
-	// A common selector for the full price (often visually hidden) is '.a-price .a-offscreen'.
-	c.OnHTML(".a-price .a-offscreen", func(e *colly.HTMLElement) {
-		// The price might be in a format like "$1,299.00". We need to parse the number.
-		re := regexp.MustCompile(`[0-9\\.,]+`) // Updated regex to handle commas
-		priceStr := re.FindString(e.Text)
-		priceStr = regexp.MustCompile(`,`).ReplaceAllString(priceStr, "") // Remove commas for parsing
-
-		p, err := strconv.ParseFloat(priceStr, 64)
-		if err == nil {
-			// Only take the first price found, as Amazon pages can have multiple price elements.
-			if !found {
-				price = p
-				found = true
-			}
-		}
-	})
-
-	c.OnRequest(func(r *colly.Request) {
-		logger.L.Info("Scraping URL", logger.Str("url", r.URL.String()))
-	})
-
-	c.OnError(func(r *colly.Response, err error) {
-		logger.L.Error("Scraping request failed", logger.Int("status_code", r.StatusCode), logger.Err(err))
-	})
-
-	err := c.Visit(url)
-	if err != nil {
-		return 0, err
-	}
-
-	if !found {
-		return 0, fmt.Errorf("could not find price on page %s with the given selector", url)
-	}
-
-	return price, nil
-}
-
 // SearchAndScrape is now fully updated to use ScrapeResult.
 func (s *service) SearchAndScrape(productName string) ([]ScrapeResult, error) {
 	collyPlatforms := map[string]func(string) (ScrapeResult, error){
-		// "Amazon AU": scrapeAmazonSearch,
 		// "eBay AU":   scrapeEbaySearch,
 	}
 	chromedpPlatforms := map[string]func(string) (ScrapeResult, error){
-		"Big W": scrapeBigWSearch,
-		// "JB Hi-Fi": scrapeJBHIFISearch,
-		// "Kogan":    scrapeKoganSearch,
+		"Big W":     scrapeBigWSearch,
+		"JB Hi-Fi":  scrapeJBHIFISearch,
+		"EB Games":  scrapeEBGamesSearch,
+		"Amazon AU": scrapeAmazonSearch,
+		"Anaconda":  scrapeAnacondaSearch,
+		"BCF":       scrapeBCFSearch,
 	}
 
 	var wg sync.WaitGroup
 	resultsChan := make(chan ScrapeResult, len(collyPlatforms)+len(chromedpPlatforms))
 	errChan := make(chan error, len(collyPlatforms)+len(chromedpPlatforms))
 
-	// Run Colly scrapers
+	// Run Colly scrapers in parallel
 	for platform, scraperFunc := range collyPlatforms {
 		wg.Add(1)
 		go func(pf string, sf func(string) (ScrapeResult, error)) {
@@ -176,22 +129,18 @@ func (s *service) SearchAndScrape(productName string) ([]ScrapeResult, error) {
 		}(platform, scraperFunc)
 	}
 
-	// Run ChromeDP scrapers
+	// Run ChromeDP scrapers sequentially to avoid being blocked and to conserve resources.
 	for platform, scraperFunc := range chromedpPlatforms {
-		wg.Add(1)
-		go func(pf string, sf func(string) (ScrapeResult, error)) {
-			defer wg.Done()
-			result, err := sf(productName)
-			if err != nil {
-				errChan <- fmt.Errorf("failed to scrape %s: %w", pf, err)
-				return
-			}
-			result.Platform = pf
-			resultsChan <- result
-		}(platform, scraperFunc)
+		result, err := scraperFunc(productName)
+		if err != nil {
+			errChan <- fmt.Errorf("failed to scrape %s: %w", platform, err)
+			continue
+		}
+		result.Platform = platform
+		resultsChan <- result
 	}
 
-	wg.Wait()
+	wg.Wait() // Wait for the parallel Colly scrapers to finish.
 	close(resultsChan)
 	close(errChan)
 
@@ -207,36 +156,34 @@ func (s *service) SearchAndScrape(productName string) ([]ScrapeResult, error) {
 	return finalResults, nil
 }
 
-// --- Helper Functions ---
-
-func createSearchURL(baseURL, queryParam, productName string) string {
-	return fmt.Sprintf("%s?%s=%s", baseURL, queryParam, url.QueryEscape(productName))
-}
-
-// parsePrice is a new name for the old cleanPrice function.
-func parsePrice(priceStr string) (float64, error) {
-	re := regexp.MustCompile(`[0-9,]+(\\.[0-9]+)?`)
-	priceMatch := re.FindString(priceStr)
-	if priceMatch == "" {
-		return 0, fmt.Errorf("no price-like string found in '%s'", priceStr)
-	}
-	priceCleaned := strings.ReplaceAll(priceMatch, ",", "")
-	return strconv.ParseFloat(priceCleaned, 64)
-}
-
-// --- Colly Scraper Implementations (for simpler sites) ---
-// Note: These are placeholders and need to be updated to return ScrapeResult if used.
-// func scrapeAmazonSearch(productName string) (ScrapeResult, error) { ... }
-// func scrapeEbaySearch(productName string) (ScrapeResult, error) { ... }
-
-// --- ChromeDP Scraper Implementations (for complex sites) ---
-
-// scrapeWithChromeDP is now fully updated to return ScrapeResult and use ScrapedProduct.
-func scrapeWithChromeDP(searchURL, itemSelector, nameSelector, priceSelector, imageSelector, linkSelector, imageAttr string) (ScrapeResult, error) {
+func scrapeWithChromeDP(params scrapeProductParams) (ScrapeResult, error) {
 	var result ScrapeResult
+	searchURL := params.SearchURL
+	itemSelector := params.ContainerSelector
+	nameSelector := params.TitleSelector
+	priceSelectors := params.PriceSelectors
+	imageSelector := params.ImageSelector
+	linkSelector := params.LinkSelector
+	imageAttr := params.ImageAttr
+
+	// A helper function to create a non-fatal "click if exists" action.
+	// It waits for the selector to be visible and then clicks, ignoring any errors.
+	tryClick := func(selector string) chromedp.Action {
+		return chromedp.ActionFunc(func(ctx context.Context) error {
+			ctx, cancel := context.WithTimeout(ctx, 2*time.Second) // Short timeout for each attempt.
+			defer cancel()
+			// We run this and ignore the error. If the element is not found or the click fails,
+			// we don't want to stop the entire scraping process.
+			_ = chromedp.Run(ctx,
+				chromedp.WaitVisible(selector, chromedp.BySearch),
+				chromedp.Click(selector, chromedp.BySearch, chromedp.NodeVisible),
+			)
+			return nil // Always return nil to indicate this action is optional and non-critical.
+		})
+	}
 
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", false),
+		chromedp.Flag("headless", true),
 		chromedp.Flag("disable-gpu", true),
 		chromedp.Flag("disable-extensions", true),
 		chromedp.Flag("disable-features", "Translate"),
@@ -248,15 +195,56 @@ func scrapeWithChromeDP(searchURL, itemSelector, nameSelector, priceSelector, im
 	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer cancel()
 
-	ctx, cancel := chromedp.NewContext(allocCtx)
-	defer cancel()
+	// This is the main context for the browser tab.
+	taskCtx, cancelTask := chromedp.NewContext(allocCtx)
+	defer cancelTask()
 
-	ctx, cancel = context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
+	// --- ANTI-BOT DETECTION ---
+	// This script runs on every new document loaded in the browser.
+	// It deletes the `navigator.webdriver` property, which is a primary flag
+	// used by websites to detect automated browsers like chromedp.
+	// Hiding this flag makes our scraper appear more like a regular user,
+	// bypassing "Your browser is not supported" errors.
+	if err := chromedp.Run(taskCtx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			script := "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+			_, err := page.AddScriptToEvaluateOnNewDocument(script).Do(ctx)
+			if err != nil {
+				return fmt.Errorf("could not add stealth script: %w", err)
+			}
+			return nil
+		}),
+	); err != nil {
+		return ScrapeResult{}, err // If we can't set up stealth, we shouldn't proceed.
+	}
+
+	// 1. Create a context specifically for loading the page.
+	loadCtx, cancelLoad := context.WithTimeout(taskCtx, 45*time.Second)
+	defer cancelLoad()
 
 	var nodes []*cdp.Node
-	err := chromedp.Run(ctx,
+	// Use the loading context for the initial page load and node retrieval.
+	err := chromedp.Run(loadCtx,
 		chromedp.Navigate(searchURL),
+		chromedp.Sleep(2*time.Second), // Wait a moment for cookie banners to appear.
+
+		// --- Enhanced Cookie Banner Handling ---
+		// Try to click a series of common cookie consent buttons.
+		tryClick(`//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'accept all')]`),
+		tryClick(`//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'allow all')]`),
+		tryClick(`//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'accept')]`),
+		tryClick(`//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'agree')]`),
+		tryClick(`//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'got it')]`),
+		tryClick(`//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'ok')]`),
+		tryClick(`//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'continue')]`),
+
+		tryClick(`#onetrust-accept-btn-handler`), // Specific selector for OneTrust
+		tryClick(`[id*="cookie-accept"]`),
+		tryClick(`[id*="consent-accept"]`),
+		tryClick(`.cookie-notify-closeBtn`),
+
+		chromedp.Sleep(2*time.Second), // Wait a moment for the banner to disappear after a potential click.
+
 		chromedp.WaitVisible(itemSelector, chromedp.ByQuery),
 		chromedp.Sleep(3*time.Second),
 		chromedp.Nodes(itemSelector, &nodes, chromedp.ByQueryAll),
@@ -267,22 +255,110 @@ func scrapeWithChromeDP(searchURL, itemSelector, nameSelector, priceSelector, im
 
 	if len(nodes) == 0 {
 		// It's not an error if no products are found, just return an empty result.
-		log.Printf("Info: no products found on page %s with selector %s", searchURL, itemSelector)
 		return result, nil
 	}
 
-	for _, node := range nodes {
+	// Now iterate, using a separate, short-lived context for each extraction.
+	for i, node := range nodes {
 		var name, price, img, link string
-		err := chromedp.Run(ctx,
-			chromedp.Text(nameSelector, &name, chromedp.ByQuery, chromedp.FromNode(node)),
-			chromedp.Text(priceSelector, &price, chromedp.ByQuery, chromedp.FromNode(node)),
-			chromedp.AttributeValue(imageSelector, imageAttr, &img, nil, chromedp.ByQuery, chromedp.FromNode(node)),
-			chromedp.AttributeValue(linkSelector, "href", &link, nil, chromedp.ByQuery, chromedp.FromNode(node)),
-		)
+		var err error
+
+		// Derive a new context from the main task context with a 10-second timeout.
+		extractCtx, cancelExtract := context.WithTimeout(taskCtx, 10*time.Second)
+
+		// --- Extraction with Detailed Logging ---
+
+		// Extract name
+		err = chromedp.Run(extractCtx, chromedp.Text(nameSelector, &name, chromedp.ByQuery, chromedp.FromNode(node)))
 		if err != nil {
-			log.Printf("Warning: could not extract details for a product, skipping: %v", err)
+			log.Printf("[Product %d] Failed to extract name with selector '%s': %v", i+1, nameSelector, err)
+			cancelExtract()
 			continue
 		}
+
+		// Extract image
+		err = chromedp.Run(extractCtx, chromedp.AttributeValue(imageSelector, imageAttr, &img, nil, chromedp.ByQuery, chromedp.FromNode(node)))
+		if err != nil {
+			log.Printf("[Product %d] Failed to extract image with selector '%s' (attr '%s'): %v", i+1, imageSelector, imageAttr, err)
+			cancelExtract()
+			continue
+		}
+
+		// Extract link
+		err = chromedp.Run(extractCtx, chromedp.AttributeValue(linkSelector, "href", &link, nil, chromedp.ByQuery, chromedp.FromNode(node)))
+		if err != nil {
+			log.Printf("[Product %d] Failed to extract link with selector '%s': %v", i+1, linkSelector, err)
+			cancelExtract()
+			continue
+		}
+
+		// --- DYNAMIC PRICE EXTRACTION ---
+		var priceFound bool
+
+		if params.Platform == "Anaconda" {
+			// --- METHOD 1: Use JavaScript to pierce Shadow DOM ---
+			selectorsJSON, _ := json.Marshal(priceSelectors)
+
+			jsGetPriceInShadowScript := fmt.Sprintf(`(function(selectors){
+  			const findInShadow = (root, selector, depth=0) => {
+    		if (!root || depth>4) return null;
+    		const el = root.querySelector?.(selector);
+				if (el) return el;
+				const nodes = root.querySelectorAll ? root.querySelectorAll('*') : [];
+				for (const host of nodes) {
+					if (host.shadowRoot) {
+						const found = findInShadow(host.shadowRoot, selector, depth+1);
+						if (found) return found;
+					}
+				}
+    		return null;
+  			};
+				for (const sel of selectors) {
+					const el = findInShadow(document, sel);
+					if (el) {
+						const t=(el.innerText||el.textContent||'').trim();
+						if(t) return t;
+					}
+				}
+				return '';
+			})(%s)`, selectorsJSON)
+
+			// Re-assign to the loop's err variable to correctly handle logging
+			err = chromedp.Run(extractCtx,
+				chromedp.EvaluateAsDevTools(jsGetPriceInShadowScript, &price),
+			)
+
+			if err != nil {
+				log.Printf("[Product %d] Failed to execute Shadow DOM price script: %v", i+1, err)
+			} else if strings.TrimSpace(price) != "" {
+				priceFound = true
+			}
+
+		} else {
+			// --- METHOD 2: Standard WaitVisible logic ---
+			for _, selector := range priceSelectors {
+				var priceText string
+				waitCtx, cancelWait := context.WithTimeout(extractCtx, 3*time.Second)
+				if err := chromedp.Run(waitCtx, chromedp.WaitVisible(selector, chromedp.ByQuery, chromedp.FromNode(node))); err == nil {
+					if err := chromedp.Run(extractCtx, chromedp.Text(selector, &priceText, chromedp.ByQuery, chromedp.FromNode(node))); err == nil && strings.TrimSpace(priceText) != "" {
+						price = priceText
+						priceFound = true
+						cancelWait()
+						break
+					}
+				}
+				cancelWait()
+			}
+		}
+
+		if !priceFound {
+			log.Printf("[Product %d] Failed to extract price with any method. Selectors: %v", i+1, priceSelectors)
+			cancelExtract()
+			continue
+		}
+		// --- END OF DYNAMIC PRICE EXTRACTION ---
+
+		cancelExtract() // Release context resources for this iteration.
 
 		parsedPrice, _ := parsePrice(price)
 		absoluteLink := link
@@ -309,47 +385,43 @@ func scrapeWithChromeDP(searchURL, itemSelector, nameSelector, priceSelector, im
 	return result, nil
 }
 
-// scrapeBigWSearch is now fully updated to use and return ScrapeResult.
-func scrapeBigWSearch(searchTerm string) (ScrapeResult, error) {
-	if searchTerm == "" {
-		return ScrapeResult{}, fmt.Errorf("search term cannot be empty")
-	}
-
-	exactSearchTerm := fmt.Sprintf("\"%s\"", searchTerm)
-	searchURL := fmt.Sprintf("https://www.bigw.com.au/search?text=%s", url.QueryEscape(exactSearchTerm))
-
-	scrapedData, err := scrapeWithChromeDP(
-		searchURL,
-		"article",
-		`[data-optly-product-tile-name="true"]`,
-		`[data-testid="price-value"]`,
-		"img",
-		"a",
-		"src",
-	)
+func scrapeProducts(input scrapeProductParams) (ScrapeResult, error) {
+	scrapedData, err := scrapeWithChromeDP(input)
 	if err != nil {
-		return ScrapeResult{}, err
+		return ScrapeResult{}, fmt.Errorf("failed to scrape %s: %w", input.Platform, err)
 	}
 
 	var filteredProducts []ScrapedProduct
-	lowerSearchTerm := strings.ToLower(searchTerm)
+	lowerSearchTerm := strings.ToLower(input.SearchTerm)
+	searchWords := strings.Fields(lowerSearchTerm)
+
+	// If there are no search words, there's nothing to filter by. Return empty.
+	if len(searchWords) == 0 {
+		return ScrapeResult{Products: []ScrapedProduct{}, Platform: input.Platform}, nil
+	}
 
 	for _, product := range scrapedData.Products {
-		productNameLower := strings.ToLower(product.Name)
 
-		// This is the new, stricter filtering logic you requested.
-		// 1. The product name must contain the search term.
-		// 2. The product name's length can be at most 20 characters longer than the search term.
-		if strings.HasPrefix(productNameLower, lowerSearchTerm) && len(productNameLower) <= (len(lowerSearchTerm)+20) {
+		reNonAlnum := regexp.MustCompile(`[^a-z0-9]`)
+		searchable := reNonAlnum.ReplaceAllString(strings.ToLower(product.Name), "")
+
+		matchedWordsCount := 0
+		for _, w := range searchWords {
+			if strings.Contains(searchable, reNonAlnum.ReplaceAllString(w, "")) {
+				matchedWordsCount++
+			}
+		}
+
+		// Calculate the ratio of matched words.
+		matchRatio := float64(matchedWordsCount) / float64(len(searchWords))
+
+		// If 80% or more of the search words are found, consider it a match.
+		// This handles cases where brand names like "Apple" are omitted in the product title.
+		if matchRatio >= 0.8 {
 			filteredProducts = append(filteredProducts, product)
 		}
 	}
 
-	return ScrapeResult{Products: filteredProducts, Platform: "Big W"}, nil
-}
-
-// Scraper defines the interface for different scraping strategies.
-// It is now correctly using the ScrapeResult type.
-type Scraper interface {
-	SearchAndScrape(productName string) ([]ScrapeResult, error)
+	// Crucially, return the filtered products, not the original full list.
+	return ScrapeResult{Products: filteredProducts, Platform: input.Platform}, nil
 }
