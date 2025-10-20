@@ -25,41 +25,15 @@ type LoginInput struct {
 type Mutation struct {
 }
 
-type Price struct {
-	ID        string    `json:"id"`
-	Platform  string    `json:"platform"`
-	Price     float64   `json:"price"`
-	Link      string    `json:"link"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
-}
-
 type Product struct {
-	ID                   string    `json:"id"`
-	Name                 string    `json:"name"`
-	Category             string    `json:"category"`
-	Brand                string    `json:"brand"`
-	Model                string    `json:"model"`
-	ImageURL             string    `json:"imageURL"`
-	Prices               []*Price  `json:"prices,omitempty"`
-	LowestPrice          float64   `json:"lowestPrice"`
-	LowestPricePlatform  string    `json:"lowestPricePlatform"`
-	LowestPriceUpdatedAt time.Time `json:"lowestPriceUpdatedAt"`
-	LowestPriceLink      string    `json:"lowestPriceLink"`
-	CreatedAt            time.Time `json:"createdAt"`
-	UpdatedAt            time.Time `json:"updatedAt"`
-}
-
-type Query struct {
-}
-
-// Represents a product found by scraping a retail website.
-type ScrapedProduct struct {
 	Platform    string  `json:"platform"`
 	ProductName string  `json:"productName"`
 	Price       float64 `json:"price"`
 	ImageURL    string  `json:"imageUrl"`
 	Link        string  `json:"link"`
+}
+
+type Query struct {
 }
 
 type User struct {

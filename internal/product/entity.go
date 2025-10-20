@@ -2,33 +2,20 @@ package product
 
 import "time"
 
+// Product represents a single product item scraped from a platform.
+// Instead of a unique name, each entry is a distinct record of what was found.
 type Product struct {
-	ID                   uint   `gorm:"primarykey"`
-	Name                 string `gorm:"index: uniq, name: ux_product_key"`
-	Category             string
-	Brand                string
-	Model                string
-	ImageURL             string
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-	Prices               []Price `gorm:"foreignKey:ProductID"`
-	LowestPrice          float64
-	LowestPricePlatform  string
-	LowestPriceUpdatedAt time.Time
-	LowestPriceLink      string
-}
-
-// DELETED the old, incorrect ScrapedInfo struct from this file.
-
-type Price struct {
-	ID        uint `gorm:"primarykey"`
-	ProductID uint
+	ID        uint   `gorm:"primarykey"`
+	Name      string `gorm:"index"` // Name is indexed for faster searching but is not unique.
 	Platform  string
 	Price     float64
 	Link      string
+	ImageURL  string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
+
+// Price struct is no longer needed as Price is now part of the Product itself.
 
 type scrapeProductParams struct {
 	SearchTerm        string

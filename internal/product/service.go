@@ -5,12 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"math/rand/v2"
 	"net/url"
 	"never-price-match-server/internal/infra/logger" // <--- 1. 添加 "os" 包
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/chromedp/cdproto/cdp"
@@ -21,8 +19,8 @@ import (
 // Service defines the business logic interface for products.
 // It now correctly uses the ScrapeResult type.
 type Service interface {
-	GetProductsByCategory(category string) ([]Product, error)
-	SearchAndScrape(productName string) ([]ScrapeResult, error)
+	SearchAndScrape(productName string, category string) ([]ScrapeResult, error)
+	GetProductSuggestions(name string) ([]string, error)
 }
 
 type service struct {
@@ -34,113 +32,149 @@ func NewService(repo Repo) Service {
 	return &service{repo: repo}
 }
 
-// GetProductsByCategory remains unchanged as it deals with database entities.
-func (s *service) GetProductsByCategory(category string) ([]Product, error) {
-	// ... (existing logic is correct and remains unchanged)
-	// 1. Retrieve basic product information from the repository
-	products, err := s.repo.GetProductsByCategory(category)
+// SearchAndScrape is now fully updated to use ScrapeResult.
+func (s *service) SearchAndScrape(productName string, category string) ([]ScrapeResult, error) {
+	// 1. First, try to find the product in the database.
+	cachedProducts, err := s.repo.SearchProductsByName(productName)
 	if err != nil {
-		return nil, err
+		// Log the error but don't block. We can still proceed with scraping.
+		logger.L.Warn("Failed to search for cached products", logger.Err(err))
 	}
 
-	var wg sync.WaitGroup
-
-	// 2. For each product, scrape the latest prices from different platforms concurrently
-	for i := range products {
-		// Simulate product main image if it's missing
-		if products[i].ImageURL == "" {
-			products[i].ImageURL = fmt.Sprintf("https://example.com/images/%s.jpg", products[i].Name)
-		}
-
-		wg.Add(len(products[i].Prices))
-
-		for j := range products[i].Prices {
-			// Use a goroutine for each scraping task
-			go func(productIndex, priceIndex int) {
-				defer wg.Done()
-
-				priceInfo := &products[productIndex].Prices[priceIndex]
-				var scrapedPrice float64
-				var err error
-
-				// 3. Call the specific scraper for each platform
-				switch priceInfo.Platform {
-				case "Amazon.com": // Changed from JD.com
-					// scrapedPrice, err = scrapeAmazon(priceInfo.Link) // Changed from scrapeJD
-				case "eBay", "Walmart": // Changed from Taobao, Pinduoduo
-					// You would have scrapeEbay, scrapeWalmart functions here
-					// For now, we'll keep them as random values for demonstration
-					scrapedPrice = 1000 + rand.Float64()*(500)
-				default:
-					// Fallback or error
-					scrapedPrice = -1 // Indicate an error or unsupported platform
-				}
-
-				if err != nil {
-					logger.L.Warn("Failed to scrape price",
-						logger.Str("platform", priceInfo.Platform),
-						logger.Str("url", priceInfo.Link),
-						logger.Err(err))
-				} else {
-					priceInfo.Price = scrapedPrice
-				}
-
-			}(i, j)
-		}
+	// If we found cached products, format them into the ScrapeResult structure and return.
+	if len(cachedProducts) > 0 {
+		return formatProductsToScrapeResults(cachedProducts), nil
 	}
 
-	wg.Wait() // Wait for all scraping goroutines to finish
+	// 2. If not found in the database, proceed with live scraping.
+	scrapedResults, err := s.performScraping(productName, category)
+	if err != nil {
+		return nil, err // If scraping itself fails catastrophically, return the error.
+	}
 
-	// You can add logic here to find the lowest price among the scraped results
-	// For now, we just return the updated products.
-	return products, nil
+	// 3. Asynchronously save the new results to the database for future searches.
+	if len(scrapedResults) > 0 {
+		go func() {
+			productsToSave := convertScrapeResultsToProducts(scrapedResults)
+			if err := s.repo.SaveProducts(productsToSave); err != nil {
+				logger.L.Error("Failed to save scraped products to database", logger.Err(err))
+			}
+		}()
+	}
+
+	return scrapedResults, nil
 }
 
-// SearchAndScrape is now fully updated to use ScrapeResult.
-func (s *service) SearchAndScrape(productName string) ([]ScrapeResult, error) {
-	collyPlatforms := map[string]func(string) (ScrapeResult, error){
-		// "eBay AU":   scrapeEbaySearch,
-	}
-	chromedpPlatforms := map[string]func(string) (ScrapeResult, error){
-		"Big W":     scrapeBigWSearch,
-		"JB Hi-Fi":  scrapeJBHIFISearch,
-		"EB Games":  scrapeEBGamesSearch,
-		"Amazon AU": scrapeAmazonSearch,
-		"Anaconda":  scrapeAnacondaSearch,
-		"BCF":       scrapeBCFSearch,
-	}
+// formatProductsToScrapeResults converts a flat list of DB product entities
+// into the grouped ScrapeResult format required by the API.
+func formatProductsToScrapeResults(products []Product) []ScrapeResult {
+	groupedByPlatform := make(map[string][]ScrapedProduct)
 
-	var wg sync.WaitGroup
-	resultsChan := make(chan ScrapeResult, len(collyPlatforms)+len(chromedpPlatforms))
-	errChan := make(chan error, len(collyPlatforms)+len(chromedpPlatforms))
-
-	// Run Colly scrapers in parallel
-	for platform, scraperFunc := range collyPlatforms {
-		wg.Add(1)
-		go func(pf string, sf func(string) (ScrapeResult, error)) {
-			defer wg.Done()
-			result, err := sf(productName)
-			if err != nil {
-				errChan <- fmt.Errorf("failed to scrape %s: %w", pf, err)
-				return
-			}
-			result.Platform = pf
-			resultsChan <- result
-		}(platform, scraperFunc)
+	for _, p := range products {
+		sp := ScrapedProduct{
+			Name:     p.Name,
+			Price:    p.Price,
+			ImageURL: p.ImageURL,
+			Link:     p.Link,
+		}
+		groupedByPlatform[p.Platform] = append(groupedByPlatform[p.Platform], sp)
 	}
 
-	// Run ChromeDP scrapers sequentially to avoid being blocked and to conserve resources.
-	for platform, scraperFunc := range chromedpPlatforms {
-		result, err := scraperFunc(productName)
-		if err != nil {
-			errChan <- fmt.Errorf("failed to scrape %s: %w", platform, err)
+	var results []ScrapeResult
+	for platform, prods := range groupedByPlatform {
+		results = append(results, ScrapeResult{
+			Platform: platform,
+			Products: prods,
+		})
+	}
+	return results
+}
+
+// convertScrapeResultsToProducts flattens the grouped ScrapeResult structure
+// into a flat list of Product entities suitable for saving to the database.
+func convertScrapeResultsToProducts(results []ScrapeResult) []Product {
+	var products []Product
+	for _, res := range results {
+		for _, p := range res.Products {
+			products = append(products, Product{
+				Name:     p.Name,
+				Platform: res.Platform,
+				Price:    p.Price,
+				Link:     p.Link,
+				ImageURL: p.ImageURL,
+			})
+		}
+	}
+	return products
+}
+
+// scraperFunc defines a standard signature for all scraper functions.
+// This makes them interchangeable.
+type scraperFunc func(productName string) (ScrapeResult, error)
+
+// allScrapers acts as a central registry for all available scraping functions.
+// To add a new scraper, simply add it to this map.
+var allScrapers = map[string]scraperFunc{
+	"Amazon AU": scrapeAmazonSearch,
+	"Anaconda":  scrapeAnacondaSearch,
+	"BCF":       scrapeBCFSearch,
+	"Big W":     scrapeBigWSearch,
+	"JB Hi-Fi":  scrapeJBHIFISearch,
+	"EB Games":  scrapeEBGamesSearch,
+}
+
+// categoryPlatforms maps product categories to the platforms that should be scraped for them.
+// This is the central configuration for category-based scraping.
+// To add a new category or change which platforms are scraped, just edit this map.
+var categoryPlatforms = map[string][]string{
+	"outdoors": {
+		"Anaconda",
+		"BCF",
+		"Amazon AU",
+	},
+	"electronics": { // Example of another specific category
+		"EB Games",
+		"JB Hi-Fi",
+		"Amazon AU",
+	},
+	"default": { // Fallback for any category not explicitly defined
+		"Big W",
+		"JB Hi-Fi",
+		"EB Games",
+		"Amazon AU",
+	},
+}
+
+func (s *service) performScraping(productName string, category string) ([]ScrapeResult, error) {
+	// Look up the list of platform names for the given category.
+	platformNames, ok := categoryPlatforms[category]
+	if !ok {
+		// If the category is not found in our map, use the 'default' list as a fallback.
+		logger.L.Info("Category not found, using default platforms", logger.Str("category", category))
+		platformNames = categoryPlatforms["default"]
+	}
+
+	resultsChan := make(chan ScrapeResult, len(platformNames))
+	errChan := make(chan error, len(platformNames))
+
+	// Run scrapers sequentially for the selected platforms to avoid being blocked.
+	for _, platformName := range platformNames {
+		scraper, exists := allScrapers[platformName]
+		if !exists {
+			logger.L.Warn("Scraper not defined for platform", logger.Str("platform", platformName))
 			continue
 		}
-		result.Platform = platform
+
+		// Execute the scraper function.
+		result, err := scraper(productName)
+		if err != nil {
+			errChan <- fmt.Errorf("failed to scrape %s: %w", platformName, err)
+			continue
+		}
+		result.Platform = platformName
 		resultsChan <- result
 	}
 
-	wg.Wait() // Wait for the parallel Colly scrapers to finish.
 	close(resultsChan)
 	close(errChan)
 
@@ -149,6 +183,7 @@ func (s *service) SearchAndScrape(productName string) ([]ScrapeResult, error) {
 		finalResults = append(finalResults, result)
 	}
 
+	// Log any errors that occurred during scraping.
 	for err := range errChan {
 		logger.L.Warn("Scraping error", logger.Err(err))
 	}
@@ -226,7 +261,7 @@ func scrapeWithChromeDP(params scrapeProductParams) (ScrapeResult, error) {
 	// Use the loading context for the initial page load and node retrieval.
 	err := chromedp.Run(loadCtx,
 		chromedp.Navigate(searchURL),
-		chromedp.Sleep(2*time.Second), // Wait a moment for cookie banners to appear.
+		chromedp.Sleep(2*time.Second),
 
 		// --- Enhanced Cookie Banner Handling ---
 		// Try to click a series of common cookie consent buttons.
@@ -424,4 +459,14 @@ func scrapeProducts(input scrapeProductParams) (ScrapeResult, error) {
 
 	// Crucially, return the filtered products, not the original full list.
 	return ScrapeResult{Products: filteredProducts, Platform: input.Platform}, nil
+}
+
+// GetProductSuggestions returns a list of product names for search-as-you-type suggestions.
+// It only queries the database if the search term is 2 or more characters long.
+func (s *service) GetProductSuggestions(name string) ([]string, error) {
+	// To avoid excessive queries, only search if the input is non-trivial.
+	if len(name) < 2 {
+		return []string{}, nil // Return empty slice if not enough characters
+	}
+	return s.repo.GetProductNamesByName(name)
 }

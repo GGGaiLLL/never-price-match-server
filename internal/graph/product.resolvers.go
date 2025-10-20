@@ -6,70 +6,30 @@ package graph
 
 import (
 	"context"
-	"fmt"
 	"never-price-match-server/internal/graph/model"
 )
 
-// Products is the resolver for the products field.
-func (r *queryResolver) Products(ctx context.Context, category string) ([]*model.Product, error) {
-	// Call the ProductService we created earlier
-	products, err := r.ProductService.GetProductsByCategory(category)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert the domain model (internal/product.Product) to the GraphQL model (internal/graph/model.Product)
-	var result []*model.Product
-	for _, p := range products {
-		var prices []*model.Price
-		for _, price := range p.Prices {
-			prices = append(prices, &model.Price{
-				ID:        fmt.Sprint(price.ID),
-				Platform:  price.Platform,
-				Price:     price.Price,
-				Link:      price.Link,
-				CreatedAt: price.CreatedAt,
-				UpdatedAt: price.UpdatedAt,
-			})
-		}
-
-		result = append(result, &model.Product{
-			ID:        fmt.Sprint(p.ID),
-			Name:      p.Name,
-			Category:  p.Category,
-			ImageURL:  p.ImageURL,
-			Prices:    prices,
-			CreatedAt: p.CreatedAt,
-			UpdatedAt: p.UpdatedAt,
-		})
-	}
-
-	return result, nil
-}
-
 // SearchProduct is the resolver for the searchProduct field.
-// It now correctly processes the nested ScrapeResult structure from the service layer
-// and flattens it into the list required by the GraphQL schema.
-func (r *queryResolver) SearchProduct(ctx context.Context, name string) ([]*model.ScrapedProduct, error) {
-	// 1. Call the service, which returns a list of results from all platforms.
-	scrapeResults, err := r.ProductService.SearchAndScrape(name)
+// It calls the service layer and maps the results to the GraphQL model.
+func (r *queryResolver) SearchProduct(ctx context.Context, name string, category string) ([]*model.Product, error) {
+	// 1. Call the service, which returns a list of results from all platforms
+	// (either from cache or a live scrape).
+	scrapeResults, err := r.ProductService.SearchAndScrape(name, category)
 	if err != nil {
 		return nil, err
 	}
 
 	// 2. Prepare a flat list to hold all individual products for the GraphQL response.
-	var finalProductList []*model.ScrapedProduct
+	var finalProductList []*model.Product
 
 	// 3. Iterate through the results from each platform.
 	for _, platformResult := range scrapeResults {
 		// 4. For each platform, iterate through the products found there.
 		for _, product := range platformResult.Products {
-			// 5. Create a GraphQL model object, mapping fields from our internal types.
-			//    Note: We are combining info from platformResult (for the platform name)
-			//    and product (for the product details).
-			finalProductList = append(finalProductList, &model.ScrapedProduct{
+			// 5. Create a GraphQL model object.
+			finalProductList = append(finalProductList, &model.Product{
 				Platform:    platformResult.Platform,
-				ProductName: product.Name, // Corrected from data.ProductName to product.Name
+				ProductName: product.Name,
 				Price:       product.Price,
 				ImageURL:    product.ImageURL,
 				Link:        product.Link,
@@ -78,4 +38,9 @@ func (r *queryResolver) SearchProduct(ctx context.Context, name string) ([]*mode
 	}
 
 	return finalProductList, nil
+}
+
+// ProductSuggestions is the resolver for the productSuggestions field.
+func (r *queryResolver) ProductSuggestions(ctx context.Context, name string) ([]string, error) {
+	return r.ProductService.GetProductSuggestions(name)
 }

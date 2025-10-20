@@ -15,6 +15,25 @@ func NewProductGormRepo(db *gorm.DB) product.Repo {
 	return &productGormRepo{db: db}
 }
 
+// SearchProductsByName performs a case-insensitive search for products by name.
+func (r *productGormRepo) SearchProductsByName(name string) ([]product.Product, error) {
+	var products []product.Product
+	err := r.db.Where("LOWER(name) LIKE LOWER(?)", "%"+name+"%").Find(&products).Error
+	if err != nil {
+		return nil, err
+	}
+	return products, nil
+}
+
+// SaveProducts saves a slice of new Product entities to the database.
+func (r *productGormRepo) SaveProducts(products []product.Product) error {
+	if len(products) == 0 {
+		return nil
+	}
+	// This is now a simple batch-create operation.
+	return r.db.Create(&products).Error
+}
+
 // GetProductsByCategory retrieves products from the database by category
 func (r *productGormRepo) GetProductsByCategory(category string) ([]product.Product, error) {
 	var products []product.Product
@@ -26,34 +45,18 @@ func (r *productGormRepo) GetProductsByCategory(category string) ([]product.Prod
 	return products, nil
 }
 
-// Seed inserts some initial product data into the database for testing
-func (r *productGormRepo) Seed() error {
-	var count int64
-	r.db.Model(&product.Product{}).Count(&count)
-	if count > 0 {
-		return nil // Do not insert if data already exists
-	}
+// GetProductNamesByName performs a distinct, case-insensitive search for product names.
+// It's optimized for search suggestions, limiting the result to 10 records.
+func (r *productGormRepo) GetProductNamesByName(name string) ([]string, error) {
+	var names []string
+	err := r.db.Model(&product.Product{}).
+		Distinct("name").
+		Where("LOWER(name) LIKE LOWER(?)", "%"+name+"%").
+		Limit(10).
+		Pluck("name", &names).Error
 
-	products := []product.Product{
-		{
-			Name:     "MacBook Pro",
-			Category: "Electronics",
-			ImageURL: "https://example.com/macbook.jpg",
-			Prices: []product.Price{
-				{Platform: "Amazon.com", Price: 1299.00, Link: "https://www.amazon.com/dp/B09JQS523B"}, // Example Amazon link
-				{Platform: "eBay", Price: 1289.00, Link: "https://www.ebay.com/itm/1234567890"},        // Example eBay link
-			},
-		},
-		{
-			Name:     "iPhone 15",
-			Category: "Electronics",
-			ImageURL: "https://example.com/iphone15.jpg",
-			Prices: []product.Price{
-				{Platform: "Amazon.com", Price: 799.00, Link: "https://www.amazon.com/dp/B0CHWR36X1"}, // Example Amazon link
-				{Platform: "Walmart", Price: 779.00, Link: "https://www.walmart.com/ip/123456789"},    // Example Walmart link
-			},
-		},
+	if err != nil {
+		return nil, err
 	}
-
-	return r.db.Create(&products).Error
+	return names, nil
 }
